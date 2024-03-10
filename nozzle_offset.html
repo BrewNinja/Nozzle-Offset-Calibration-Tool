@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <H1>Nozzle Offset Calibration Tool</H1>
+    <style>
+        body {
+          background-color: black;
+          color: red;
+          margin: 0;
+        }
+        :root{
+          --StreamWidth: 640px;
+          --StreamWidthHalf: calc(var(--StreamWidth) / 2);
+          --StreamHeight: 480px;
+          --StreamHeightHalf: calc(var(--StreamHeight) / 2);
+        }
+        #videoContainer {
+            position: relative;
+            width: var(--StreamWidth); /* Set the desired video stream width */
+            height: var(--StreamHeight); /* Set the desired video stream height */
+            overflow: hidden; /* Prevent crosshair lines from going outside the box */
+        }
+        #videoFrame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            object-fit: cover;
+        }
+        .circle-overlay {
+            position: absolute;
+            border: 1px solid red;
+            border-radius: 50%;
+            pointer-events: none; /* Prevent the overlay from blocking clicks */
+            width: 70px; /* Initial circle size */
+            height: 70px; /* Initial circle size */
+            top: calc(50% - 35px); /* Center vertically */
+            left: calc(50% - 35px); /* Center horizontally */
+        }
+        .crosshair-line {
+            position: absolute;
+            background-color: red;
+            pointer-events: none;
+        }
+        #verticalLine {
+            height: calc(var(--StreamHeight) - 1px);
+            width: 0px;
+            top: -2px;
+		        left: var(--StreamWidthHalf);
+            border: 1px solid red;
+            transform: translateX(-50%);
+            z-index: 1;
+        }
+        #horizontalLine {
+          width: var(--StreamWidth);
+          height: 0px;
+          top: var(--StreamHeightHalf);
+          left: -1px;
+          border: 1px solid red;
+          z-index: 1;
+            transform: translateY(-50%);
+        }
+        #circleSizeSlider {
+            width: 400px; /* Adjust the width as needed */
+        }
+    </style>
+</head>
+<body>
+    <br>
+    <title>Nozzle Offset Calibration Tool</title>
+    Input the cam stream info. The default should be accurate assuming you loaded this onto your klipper instance and are using a built in camera.<br>
+    This is going to be your klipper IP and the stream path: (for example: 192.168.1.50 and /webcam/?action=stream) <br>
+    You can look in your setting in fluidd or mainsail and find the cam stream path also, and you may have to if you have multiple cameras.<br>
+    <br>
+    Camera IP (if not hosted on klipper):<br>
+    <input type="text" id="camAddress" placeholder="Enter cam address"><br>
+    Klipper IP:<br>
+    <input type="text" id="ipAddress" placeholder="Enter IP address"><br>
+    Stream Path:<br>
+    <input type="text" id="streampath" value="/webcam/?action=stream"><br>
+    <button onclick="startVideoStream()">Start Stream</button> <br>
+    <div id="videoContainer">
+        <iframe id="videoFrame" frameborder="0"></iframe>
+        <div class="circle-overlay" id="circleOverlay"></div>
+        <div class="crosshair-line" id="verticalLine"></div>
+        <div class="crosshair-line" id="horizontalLine"></div>
+    </div>
+
+    <input type="range" id="circleSizeSlider" min="10" max="100" value="35" step="1" oninput="adjustCircleSize()">
+    
+    <h2>Current Toolhead Position</h2>
+    <p>Toolhead Position (mm):</p><p id="positionOutput">Loading position...</p>
+
+    <h2>Stored Position</h2>
+    <p id="storedPosition">No position stored yet</p>
+    <button onclick="storePosition()">Store Position</button>
+
+    <h2>Current Offset</h2>
+    <p id="offset">No Offset Yet</p>
+
+    <script>
+        let storedX = null;
+        let storedY = null;
+
+        function updateURLs(){
+          var klipperip = location.host;
+          var streampath = "/webcam/?action=stream";
+          var streamurl = "http://" + klipperip + streampath;
+          const ipInput = document.getElementById('ipAddress');
+          ipInput.value = klipperip;
+        }
+        
+        window.onload = updateURLs;
+
+        function startVideoStream() {
+            const camAddress = document.getElementById('camAddress').value;
+            const ipAddress = document.getElementById('ipAddress').value;
+            const camstream = document.getElementById('streampath').value;
+            const videoFrame = document.getElementById('videoFrame');
+            if (camAddress === null){
+              videoFrame.setAttribute('src', "http://" + ipAddress + camstream);
+            }else{
+              videoFrame.setAttribute('src', "http://" + camAddress + camstream);
+            }
+        }
+
+        function adjustCircleSize() {
+            const circleOverlay = document.getElementById('circleOverlay');
+            const sliderValue = document.getElementById('circleSizeSlider').value;
+            const radius = parseFloat(sliderValue);
+            if (!isNaN(radius)) {
+                circleOverlay.style.width = `${2 * radius}px`;
+                circleOverlay.style.height = `${2 * radius}px`;
+                circleOverlay.style.left = `calc(50% - ${radius}px)`;
+                circleOverlay.style.top = `calc(50% - ${radius}px)`;
+            }
+        }
+
+        async function getToolheadPosition() {
+            try {
+                //const response = await fetch('http://192.168.68.150/printer/objects/query?toolhead=position');
+                const ipAdd = document.getElementById('ipAddress').value;
+                const moonurl = "http://" + ipAdd + "/printer/objects/query?toolhead=position";
+                const response = await fetch(moonurl);
+                if (response.ok) {
+                    const data = await response.json();
+                    const positionArray = data.result.status.toolhead.position;
+                    const posX = parseFloat(positionArray[0]).toFixed(3);
+                    const posY = parseFloat(positionArray[1]).toFixed(3);
+                    const posZ = parseFloat(positionArray[2]).toFixed(3);
+                    const ext = parseFloat(positionArray[3]).toFixed(3);
+                    const positionOutput = document.getElementById('positionOutput');
+                    positionOutput.textContent = `X: ${posX}, Y: ${posY}`;
+                    if (storedX !== null && storedY !== null) {
+                        const offsetX = (posX - storedX).toFixed(3);
+                        const offsetY = (posY - storedY).toFixed(3);
+                        document.getElementById('offset').textContent = `Offset: X: ${offsetX}, Y: ${offsetY}`;
+                    }
+                } else {
+                    console.error(`Error fetching data. Status code: ${response.status}`);
+                }
+            } catch (error) {
+                console.error(`An error occurred: ${error.message}`);
+            }
+        }
+
+        // Fetch position every 1 seconds (adjust as needed)
+        setInterval(getToolheadPosition, 1000);
+
+        function storePosition() {
+            storedX = parseFloat(document.getElementById('positionOutput').textContent.split(',')[0].split(':')[1].trim());
+            storedY = parseFloat(document.getElementById('positionOutput').textContent.split(',')[1].split(':')[1].trim());
+            console.log('Stored X:', storedX, 'Y:', storedY);
+            storedPosition.textContent = `X: ${storedX} Y: ${storedY}`;
+        }
+
+
+    </script>
+</body>
+</html>
