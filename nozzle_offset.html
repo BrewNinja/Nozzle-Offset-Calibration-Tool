@@ -118,7 +118,7 @@
             const ipAddress = document.getElementById('ipAddress').value;
             const camstream = document.getElementById('streampath').value;
             const videoFrame = document.getElementById('videoFrame');
-            if (camAddress === null){
+            if (!camAddress){
               videoFrame.setAttribute('src', "http://" + ipAddress + camstream);
             }else{
               videoFrame.setAttribute('src', "http://" + camAddress + camstream);
